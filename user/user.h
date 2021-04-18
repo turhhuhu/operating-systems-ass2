@@ -1,6 +1,6 @@
 struct stat;
 struct rtcdate;
-
+struct sigaction;
 // system calls
 int fork(void);
 int exit(int) __attribute__((noreturn));
@@ -23,6 +23,10 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+uint sigprocmask(uint sigmask);
+int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact);
+void sigret(void);
+
 
 // ulib.c
 int stat(const char*, struct stat*);

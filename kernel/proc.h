@@ -1,3 +1,10 @@
+#define SIG_DFL 0 /* default signal handling */
+#define SIG_IGN 1 /* ignore signal */
+#define SIGKILL 9
+#define SIGSTOP 17
+#define SIGCONT 19
+#define SIGNALS_COUNT 32
+
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
@@ -24,6 +31,11 @@ struct cpu {
   struct context context;     // swtch() here to enter scheduler().
   int noff;                   // Depth of push_off() nesting.
   int intena;                 // Were interrupts enabled before push_off()?
+};
+
+struct sigaction {
+  void (*sa_handler) (int);
+  uint sigmask;
 };
 
 extern struct cpu cpus[NCPU];
@@ -105,4 +117,8 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  uint pending_signals;
+  uint signal_mask;
+  void* signal_handlers[SIGNALS_COUNT];
+  struct trapframe* user_backup;
 };
