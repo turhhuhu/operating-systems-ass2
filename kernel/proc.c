@@ -6,7 +6,12 @@
 #include "proc.h"
 #include "defs.h"
 
-int change_sigmask(struct proc *p, uint sigmask);
+int is_valid_sigmask(uint);
+void sigkill_handler(int);
+void sigstop_handler(int);
+void sigcont_handler(int);
+void sigign_handler(int);
+void sigdfl_handler(int);
 
 struct cpu cpus[NCPU];
 
@@ -27,6 +32,14 @@ extern char trampoline[]; // trampoline.S
 // memory model when using p->parent.
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
+
+static handler *def_handlers[] = {
+	[SIGSTOP]  sigstop_handler,
+	[SIGKILL]  sigkill_handler,
+	[SIG_IGN]  sigign_handler,
+	[SIG_DFL]  sigkill_handler,
+	[SIGCONT]  sigcont_handler
+};
 
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
@@ -143,6 +156,27 @@ found:
 	p->context.ra = (uint64)forkret;
 	p->context.sp = p->kstack + PGSIZE;
 
+	// Allocate a backup trapframe page.
+	if((p->trapframe_backup = (struct trapframe *)kalloc()) == 0){
+		freeproc(p);
+		release(&p->lock);
+		return 0;
+	}
+	
+	for (int i = 0; i < SIGNALS_COUNT; i++){
+		if(i == SIG_DFL 
+		|| i == SIG_IGN 
+		|| i == SIGKILL 
+		|| i == SIGSTOP 
+		|| i == SIGCONT){
+			p->signal_handlers[i] = def_handlers[i];
+		}
+		else{
+			p->signal_handlers[i] = sigkill_handler;
+		}
+		p->signal_handlers_masks[i] = 0;
+	}
+
 	return p;
 }
 
@@ -154,6 +188,8 @@ freeproc(struct proc *p)
 {
 	if(p->trapframe)
 		kfree((void*)p->trapframe);
+	if(p->trapframe_backup)
+		kfree((void*)p->trapframe_backup);
 	p->trapframe = 0;
 	if(p->pagetable)
 		proc_freepagetable(p->pagetable, p->sz);
@@ -168,12 +204,7 @@ freeproc(struct proc *p)
 	p->state = UNUSED;
 	p->pending_signals = 0;
 	p->signal_mask = 0;
-
-	for (int i = 0; i < SIGNALS_COUNT; i++){
-		p->signal_handlers[i] = SIG_DFL;
-	}
 }
-
 // Create a user page table for a given process,
 // with no user memory, but with trampoline pages.
 pagetable_t
@@ -361,12 +392,13 @@ sigprocmask(uint sigprocmask)
 
 int
 sigaction(int signum, uint64 act_addr, uint64 old_act_addr)
-{
+{	
 	struct proc *p = myproc();
 	struct sigaction old_act;
 	struct sigaction new_act;
-	acquire(&p->lock);	
+	acquire(&p->lock);
 	old_act.sa_handler = p->signal_handlers[signum];
+	old_act.sigmask = p->signal_handlers_masks[signum];
 	if(old_act_addr != 0){
 		if(copyout(p->pagetable, old_act_addr, (char *)&old_act, sizeof(old_act)) < 0){
 			release(&p->lock);
@@ -374,39 +406,68 @@ sigaction(int signum, uint64 act_addr, uint64 old_act_addr)
 		}
 	}
 	if(act_addr != 0){
-		if(signum == SIGKILL || signum == SIGSTOP)
-		{
+		if(signum == SIGKILL || signum == SIGSTOP){
 			release(&p->lock);
 			return -1;
 		}
-		if(copyin(p->pagetable, (char *)act_addr, (uint64)&new_act, sizeof(new_act)) < 0){
+		if(copyin(p->pagetable, (char *)&new_act, act_addr, sizeof(new_act)) < 0){
 			release(&p->lock);
 			return -1;
-		}	
+		}
 	}
-	p->signal_handlers[signum] = new_act.sa_handler;
-	if(change_sigmask(p, new_act.sigmask) < 0){
+	if(is_valid_sigmask(new_act.sigmask) < 0){
 		release(&p->lock);
 		return -1;
 	}
+
+
+	//uint64 sa_handler = (uint64)new_act.sa_handler;
+
+	// if(sa_handler != SIGSTOP 
+	// 	&& sa_handler != SIGKILL 
+	// 	&& sa_handler != SIG_IGN 
+	// 	&& sa_handler != SIG_DFL 
+	// 	&& sa_handler != SIGCONT
+	// ){
+	// 	if(sa_handler < SIGNALS_COUNT){
+	// 		release(&p->lock);
+	// 		return -1;
+	// 	}
+	// 	else{
+	// 		p->signal_handlers[signum] = new_act.sa_handler;
+	// 		p->signal_handlers_masks[signum] = new_act.sigmask;
+	// 		release(&p->lock);
+	// 		return 0;
+	// 	}
+	// }
+	// else{
+	// 	p->signal_handlers[signum] = def_handlers[sa_handler];
+	// 	p->signal_handlers_masks[signum] = new_act.sigmask;
+	// }
+
+	p->signal_handlers[signum] = new_act.sa_handler;
+	p->signal_handlers_masks[signum] = new_act.sigmask;
 	release(&p->lock);
 	return 0;
 }
 
 void
 sigret(){
-	return;
+	struct proc* p = myproc();
+	acquire(&p->lock);
+	*(p->trapframe) = *(p->trapframe_backup);
+	p->signal_mask = p->signal_mask_backup;
+	p->is_handling_signal = 0;
+	release(&p->lock);
 }
 
-//assumes p lock is acquired
 int 
-change_sigmask(struct proc* p, uint sigmask){
-	char sigkill = sigmask & SIGKILL;
-	char sigstop = sigmask & SIGSTOP;
-	if(sigkill != SIGKILL || sigstop != SIGSTOP){
+is_valid_sigmask(uint sigmask){
+	int sigkill = 1 << SIGKILL;
+	int sigstop = 1 << SIGSTOP;
+	if(sigmask < 0 || sigkill & sigmask || sigstop & sigmask){
 		return -1;
 	}
-	p->signal_mask = sigmask;
 	return 0;
 }
 
@@ -653,18 +714,17 @@ wakeup(void *chan)
 // The victim won't exit until it tries to return
 // to user space (see usertrap() in trap.c).
 int
-kill(int pid)
+kill(int pid, int signum)
 {
+	if (signum < 0 || signum > SIGNALS_COUNT){
+		return -1;
+	}
 	struct proc *p;
-
 	for(p = proc; p < &proc[NPROC]; p++){
 		acquire(&p->lock);
 		if(p->pid == pid){
-			p->killed = 1;
-			if(p->state == SLEEPING){
-				// Wake process from sleep().
-				p->state = RUNNABLE;
-			}
+			p->pending_signals = 1 << signum | p -> pending_signals;
+			printf("pedning signals: %d\n", p->pending_signals);
 			release(&p->lock);
 			return 0;
 		}
@@ -730,4 +790,34 @@ procdump(void)
 		printf("%d %s %s", p->pid, state, p->name);
 		printf("\n");
 	}
+}
+
+void
+sigkill_handler(int signum)
+{
+	struct proc* p = myproc();
+	p->killed = 1;
+	if (p->state == SLEEPING) {
+		// Wake process from sleep().
+		p->state = RUNNABLE;
+	}
+}
+
+void
+sigstop_handler(int signum)
+{
+	struct proc* p = myproc();
+	p->is_stopped = 1;
+}
+
+void
+sigcont_handler(int signum)
+{
+	struct proc* p = myproc();
+	p->is_stopped = 0;
+}
+
+void
+sigign_handler(int signum)
+{
 }

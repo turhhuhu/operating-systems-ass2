@@ -1,9 +1,4 @@
-#define SIG_DFL 0 /* default signal handling */
-#define SIG_IGN 1 /* ignore signal */
-#define SIGKILL 9
-#define SIGSTOP 17
-#define SIGCONT 19
-#define SIGNALS_COUNT 32
+#include "signals.h"
 
 // Saved registers for kernel context switches.
 struct context {
@@ -33,10 +28,7 @@ struct cpu {
   int intena;                 // Were interrupts enabled before push_off()?
 };
 
-struct sigaction {
-  void (*sa_handler) (int);
-  uint sigmask;
-};
+void sigkill_handler(int signum);
 
 extern struct cpu cpus[NCPU];
 
@@ -120,5 +112,9 @@ struct proc {
   uint pending_signals;
   uint signal_mask;
   void* signal_handlers[SIGNALS_COUNT];
-  struct trapframe* user_backup;
+  int signal_handlers_masks[SIGNALS_COUNT];
+  struct trapframe* trapframe_backup;
+  int signal_mask_backup;
+  char is_stopped;
+  char is_handling_signal;
 };

@@ -14,7 +14,7 @@ sys_exit(void)
   if(argint(0, &n) < 0)
     return -1;
   exit(n);
-  return 0;  // not reached
+  return 0; // not reached
 }
 
 uint64
@@ -77,10 +77,10 @@ uint64
 sys_kill(void)
 {
   int pid;
-
-  if(argint(0, &pid) < 0)
-    return -1;
-  return kill(pid);
+  int signum;
+  if (argint(0, &pid) < 0 || argint(1, &signum) < 0)
+      return -1;
+  return kill(pid, signum);
 }
 
 // return how many clock tick interrupts have occurred

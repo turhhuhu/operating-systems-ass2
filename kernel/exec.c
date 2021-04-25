@@ -117,7 +117,7 @@ exec(char *path, char **argv)
   for (int i = 0; i < SIGNALS_COUNT; i++){
     if((uint64)p->signal_handlers[i] != SIG_IGN)
     {
-      p->signal_handlers[i] = SIG_DFL;
+      p->signal_handlers[i] = sigkill_handler;
     }
   }
   proc_freepagetable(oldpagetable, oldsz);

@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "syscall.h": "c",
+        "signals.h": "c",
+        "memlayout.h": "c"
+    }
+}
