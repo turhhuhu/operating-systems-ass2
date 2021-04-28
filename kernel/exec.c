@@ -9,6 +9,14 @@
 
 static int loadseg(pde_t *pgdir, uint64 addr, struct inode *ip, uint offset, uint sz);
 
+static handler *def_handlers[] = {
+	[SIGSTOP]  sigstop_handler,
+	[SIGKILL]  sigkill_handler,
+	[SIG_IGN]  sigign_handler,
+	[SIG_DFL]  sigkill_handler,
+	[SIGCONT]  sigcont_handler
+};
+
 int
 exec(char *path, char **argv)
 {
@@ -115,10 +123,19 @@ exec(char *path, char **argv)
   p->trapframe->epc = elf.entry;  // initial program counter = main
   p->trapframe->sp = sp; // initial stack pointer
   for (int i = 0; i < SIGNALS_COUNT; i++){
-    if((uint64)p->signal_handlers[i] != SIG_IGN)
-    {
-      p->signal_handlers[i] = sigkill_handler;
-    }
+      if(i == SIG_DFL 
+      || i == SIG_IGN 
+      || i == SIGKILL 
+      || i == SIGSTOP 
+      || i == SIGCONT){
+        p->signal_handlers[i] = def_handlers[i];
+      }
+      else{
+        if(p->signal_handlers[i] != sigign_handler){
+          p->signal_handlers[i] = sigkill_handler;     
+        }   
+      }
+		  p->signal_handlers_masks[i] = 0;
   }
   proc_freepagetable(oldpagetable, oldsz);
 

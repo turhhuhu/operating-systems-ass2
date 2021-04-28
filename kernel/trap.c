@@ -90,14 +90,11 @@ call_sigret(){
 void
 sigret_end(){
 }
-
 void
-handle_signal(struct proc *p, int signum, uint64 satp){
-	uint64 sa_handler = (uint64)p->signal_handlers[signum];
-	p->signal_mask_backup = p->signal_mask;
-	p->signal_mask = p->signal_handlers_masks[signum];
-	p->is_handling_signal = 1;
+handle_user_signal(struct proc *p, int signum, uint64 satp)
+{
 
+	uint64 sa_handler = (uint64)p->signal_handlers[signum];
 	p->trapframe->sp -= sizeof(struct trapframe);
 	*(p->trapframe_backup) = *(p->trapframe);
 	if(copyout(p->pagetable, p->trapframe_backup->sp, (char *)p->trapframe, sizeof(struct trapframe)) < 0){
@@ -118,6 +115,35 @@ handle_signal(struct proc *p, int signum, uint64 satp){
 }
 
 void
+handle_kernel_signal(struct proc *p, int signum)
+{
+	handler* sa_handler = (handler*)p->signal_handlers[signum];
+	sa_handler(signum);
+	p->signal_mask = p->signal_mask_backup;
+	p->is_handling_signal = 0;
+	p->pending_signals = 0 << signum & p->pending_signals;
+}
+
+void
+handle_signal(struct proc *p, int signum, uint64 satp){
+	p->signal_mask_backup = p->signal_mask;
+	p->signal_mask = p->signal_handlers_masks[signum];
+	p->is_handling_signal = 1;
+	void* handler = p->signal_handlers[signum];
+	if(handler == sigkill_handler 
+	|| handler == sigcont_handler 
+	|| handler == sigstop_handler 
+	|| handler == sigign_handler)
+	{
+		printf("handling kernel signal...\n");
+		handle_kernel_signal(p, signum);
+		return;
+	}
+	printf("handling user signal...\n");
+	handle_user_signal(p, signum, satp);
+}
+
+void
 check_pending_signals(struct proc *p, uint64 satp)
 {
 	if (p->is_handling_signal){
@@ -127,15 +153,7 @@ check_pending_signals(struct proc *p, uint64 satp)
 		int is_blocked = (1 << i & p->signal_mask);
 		int is_set = (1 << i & p->pending_signals);
 		if(!is_blocked && is_set){
-			if(i == SIG_DFL 
-			|| i == SIG_IGN 
-			|| i == SIGKILL 
-			|| i == SIGSTOP 
-			|| i == SIGCONT){
-				handler* sa_handler = (handler*)p->signal_handlers[i];
-				sa_handler(i);
-				continue;
-			}
+			printf("handling signal number: %d\n", i);
 			handle_signal(p, i, satp);
 		}
 	}

@@ -20,6 +20,12 @@ struct context {
   uint64 s11;
 };
 
+void sigkill_handler(int signum);
+void sigign_handler(int signum);
+void sigcont_handler(int signum);
+void sigstop_handler(int signum);
+
+
 // Per-CPU state.
 struct cpu {
   struct proc *proc;          // The process running on this cpu, or null.
@@ -28,10 +34,7 @@ struct cpu {
   int intena;                 // Were interrupts enabled before push_off()?
 };
 
-void sigkill_handler(int signum);
-
 extern struct cpu cpus[NCPU];
-
 // per-process data for the trap handling code in trampoline.S.
 // sits in a page by itself just under the trampoline page in the
 // user page table. not specially mapped in the kernel page table.

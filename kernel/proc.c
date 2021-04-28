@@ -393,6 +393,9 @@ sigprocmask(uint sigprocmask)
 int
 sigaction(int signum, uint64 act_addr, uint64 old_act_addr)
 {	
+	if(signum > SIGNALS_COUNT || signum < 0){
+		return -1;
+	}
 	struct proc *p = myproc();
 	struct sigaction old_act;
 	struct sigaction new_act;
@@ -419,32 +422,6 @@ sigaction(int signum, uint64 act_addr, uint64 old_act_addr)
 		release(&p->lock);
 		return -1;
 	}
-
-
-	//uint64 sa_handler = (uint64)new_act.sa_handler;
-
-	// if(sa_handler != SIGSTOP 
-	// 	&& sa_handler != SIGKILL 
-	// 	&& sa_handler != SIG_IGN 
-	// 	&& sa_handler != SIG_DFL 
-	// 	&& sa_handler != SIGCONT
-	// ){
-	// 	if(sa_handler < SIGNALS_COUNT){
-	// 		release(&p->lock);
-	// 		return -1;
-	// 	}
-	// 	else{
-	// 		p->signal_handlers[signum] = new_act.sa_handler;
-	// 		p->signal_handlers_masks[signum] = new_act.sigmask;
-	// 		release(&p->lock);
-	// 		return 0;
-	// 	}
-	// }
-	// else{
-	// 	p->signal_handlers[signum] = def_handlers[sa_handler];
-	// 	p->signal_handlers_masks[signum] = new_act.sigmask;
-	// }
-
 	p->signal_handlers[signum] = new_act.sa_handler;
 	p->signal_handlers_masks[signum] = new_act.sigmask;
 	release(&p->lock);
@@ -454,6 +431,7 @@ sigaction(int signum, uint64 act_addr, uint64 old_act_addr)
 void
 sigret(){
 	struct proc* p = myproc();
+	printf("in sig ret");
 	acquire(&p->lock);
 	*(p->trapframe) = *(p->trapframe_backup);
 	p->signal_mask = p->signal_mask_backup;
@@ -589,6 +567,14 @@ scheduler(void)
 				// Switch to chosen process.  It is the process's job
 				// to release its lock and then reacquire it
 				// before jumping back to us.
+				if(p->is_stopped){
+					int is_blocked = (1 << SIGCONT & p->signal_mask);
+					int is_set = (1 << SIGCONT & p->pending_signals);
+					if(is_blocked || !is_set){
+						release(&p->lock);
+						continue;
+					}
+				}
 				p->state = RUNNING;
 				c->proc = p;
 				swtch(&c->context, &p->context);
@@ -627,6 +613,7 @@ sched(void)
 	intena = mycpu()->intena;
 	swtch(&p->context, &mycpu()->context);
 	mycpu()->intena = intena;
+
 }
 
 // Give up the CPU for one scheduling round.
@@ -724,7 +711,6 @@ kill(int pid, int signum)
 		acquire(&p->lock);
 		if(p->pid == pid){
 			p->pending_signals = 1 << signum | p -> pending_signals;
-			printf("pedning signals: %d\n", p->pending_signals);
 			release(&p->lock);
 			return 0;
 		}
@@ -806,6 +792,7 @@ sigkill_handler(int signum)
 void
 sigstop_handler(int signum)
 {
+	printf("in sig stop\n");
 	struct proc* p = myproc();
 	p->is_stopped = 1;
 }
@@ -813,6 +800,7 @@ sigstop_handler(int signum)
 void
 sigcont_handler(int signum)
 {
+	printf("in sig cont\n");
 	struct proc* p = myproc();
 	p->is_stopped = 0;
 }

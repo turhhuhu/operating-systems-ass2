@@ -16,13 +16,7 @@ void sahandler3(int sig){
 
 int main(int argc, char const *argv[])
 {
-    struct sigaction old_sigact;
-    struct sigaction sigact;
-    sigact.sa_handler = sahandler2;
-    sigact.sigmask = 5;
-    sigaction(15, &sigact, &old_sigact);
     int pid = getpid();
-    kill(pid, 15);
     pid = fork();
     if(pid == 0){
         printf("in child\n");
@@ -31,8 +25,12 @@ int main(int argc, char const *argv[])
         printf("waki waki\n");
         exit(0);
     }
-    sleep(10);
-    kill(pid, SIGKILL);
+    kill(pid, SIGSTOP);
+    sleep(50);
+    printf("before sig cont\n");
+    kill(pid, SIGCONT);
+    printf("after sig cont\n");
+    wait(&pid);
     exit(0);
 }
 
