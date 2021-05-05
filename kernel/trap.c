@@ -45,19 +45,22 @@ usertrap(void)
 	// since we're now in the kernel.
 	w_stvec((uint64)kernelvec);
 
-	struct proc *p = myproc();  
+	struct proc *p = myproc();
+	struct thread* t = mythread(); 
 	// save user program counter.
-	p->trapframe->epc = r_sepc();
+	t->trapframe->epc = r_sepc();
 	
 	if(r_scause() == 8){
 		// system call
 
 		if(p->killed)
 			exit(-1);
+//        else if(t->is_killed)
+//            freethread(t);
 
 		// sepc points to the ecall instruction,
 		// but we want to return to the next instruction.
-		p->trapframe->epc += 4;
+		t->trapframe->epc += 4;
 
 		// an interrupt will change sstatus &c registers,
 		// so don't enable until done with those registers.
@@ -74,6 +77,8 @@ usertrap(void)
 
 	if(p->killed)
 		exit(-1);
+	else if(t->is_killed)
+		freethread(t);
 
 	// give up the CPU if this is a timer interrupt.
 	if(which_dev == 2)
@@ -91,32 +96,34 @@ void
 sigret_end(){
 }
 void
-handle_user_signal(struct proc *p, int signum, uint64 satp)
+handle_user_signal(int signum, uint64 satp, int thread_position)
 {
-
+	struct proc *p = myproc();
+	struct thread *t = mythread();
 	uint64 sa_handler = (uint64)p->signal_handlers[signum];
-	p->trapframe->sp -= sizeof(struct trapframe);
-	*(p->trapframe_backup) = *(p->trapframe);
-	if(copyout(p->pagetable, p->trapframe_backup->sp, (char *)p->trapframe, sizeof(struct trapframe)) < 0){
+	t->trapframe->sp -= sizeof(struct trapframe);
+	*(p->trapframe_backup) = *(t->trapframe);
+	if(copyout(p->pagetable, p->trapframe_backup->sp, (char *)t->trapframe, sizeof(struct trapframe)) < 0){
 		return;
 	}
-	p->trapframe->epc = sa_handler;
+	t->trapframe->epc = sa_handler;
 	int sigret_function_size = (sigret_end - call_sigret);
-	p->trapframe->sp -= sigret_function_size;
-	if(copyout(p->pagetable, p->trapframe->sp, (char *)call_sigret, sigret_function_size) < 0){
+	t->trapframe->sp -= sigret_function_size;
+	if(copyout(p->pagetable, t->trapframe->sp, (char *)call_sigret, sigret_function_size) < 0){
 		return;
 	}
-	p->trapframe->ra = p->trapframe->sp;
-	p->trapframe->a0 = signum;
+	t->trapframe->ra = t->trapframe->sp;
+	t->trapframe->a0 = signum;
 	p->pending_signals = 0 << signum & p->pending_signals;
-	w_sepc(p->trapframe->epc);
+	w_sepc(t->trapframe->epc);
 	uint64 fn = TRAMPOLINE + (userret - trampoline);
-	((void (*)(uint64,uint64))fn)(TRAPFRAME, satp);
+	((void (*)(uint64,uint64))fn)(TRAPFRAME + (thread_position*sizeof(struct trapframe)), satp);
 }
 
 void
-handle_kernel_signal(struct proc *p, int signum)
+handle_kernel_signal(int signum)
 {
+	struct proc *p = myproc();
 	handler* sa_handler = (handler*)p->signal_handlers[signum];
 	sa_handler(signum);
 	p->signal_mask = p->signal_mask_backup;
@@ -125,7 +132,8 @@ handle_kernel_signal(struct proc *p, int signum)
 }
 
 void
-handle_signal(struct proc *p, int signum, uint64 satp){
+handle_signal(int signum, uint64 satp, int thread_position){
+	struct proc *p = myproc();
 	p->signal_mask_backup = p->signal_mask;
 	p->signal_mask = p->signal_handlers_masks[signum];
 	p->is_handling_signal = 1;
@@ -136,16 +144,17 @@ handle_signal(struct proc *p, int signum, uint64 satp){
 	|| handler == sigign_handler)
 	{
 		printf("handling kernel signal...\n");
-		handle_kernel_signal(p, signum);
+		handle_kernel_signal(signum);
 		return;
 	}
 	printf("handling user signal...\n");
-	handle_user_signal(p, signum, satp);
+	handle_user_signal(signum, satp, thread_position);
 }
 
 void
-check_pending_signals(struct proc *p, uint64 satp)
+check_pending_signals(uint64 satp, int thread_position)
 {
+	struct proc *p = myproc();
 	if (p->is_handling_signal){
 		return;
 	}
@@ -154,7 +163,7 @@ check_pending_signals(struct proc *p, uint64 satp)
 		int is_set = (1 << i & p->pending_signals);
 		if(!is_blocked && is_set){
 			printf("handling signal number: %d\n", i);
-			handle_signal(p, i, satp);
+			handle_signal(i, satp, thread_position);
 		}
 	}
 }
@@ -166,6 +175,7 @@ void
 usertrapret(void)
 {
 	struct proc *p = myproc();
+	struct thread *t = mythread();
 
 	// we're about to switch the destination of traps from
 	// kerneltrap() to usertrap(), so turn off interrupts until
@@ -177,10 +187,10 @@ usertrapret(void)
 
 	// set up trapframe values that uservec will need when
 	// the process next re-enters the kernel.
-	p->trapframe->kernel_satp = r_satp();         // kernel page table
-	p->trapframe->kernel_sp = p->kstack + PGSIZE; // process's kernel stack
-	p->trapframe->kernel_trap = (uint64)usertrap;
-	p->trapframe->kernel_hartid = r_tp();         // hartid for cpuid()
+	t->trapframe->kernel_satp = r_satp();         // kernel page table
+	t->trapframe->kernel_sp = t->kstack + PGSIZE; // process's kernel stack
+	t->trapframe->kernel_trap = (uint64)usertrap;
+	t->trapframe->kernel_hartid = r_tp();         // hartid for cpuid()
 
 	// set up the registers that trampoline.S's sret will use
 	// to get to user space.
@@ -192,18 +202,27 @@ usertrapret(void)
 	w_sstatus(x);
 
 	// set S Exception Program Counter to the saved user pc.
-	w_sepc(p->trapframe->epc);
+	w_sepc(t->trapframe->epc);
 
 	// tell trampoline.S the user page table to switch to.
 	uint64 satp = MAKE_SATP(p->pagetable);
 
-	check_pending_signals(p, satp);
+	int thread_position = 0;
+	for(int i = 0; i < NTHREAD; i++){
+		if(&p->threads[i] == t)
+		{
+			thread_position = i;
+			break;
+		}
+	}
+
+	check_pending_signals(satp, thread_position);
 
 	// jump to trampoline.S at the top of memory, which 
 	// switches to the user page table, restores user registers,
 	// and switches to user mode with sret.
 	uint64 fn = TRAMPOLINE + (userret - trampoline);
-	((void (*)(uint64,uint64))fn)(TRAPFRAME, satp);
+	((void (*)(uint64,uint64))fn)(TRAPFRAME + (thread_position*sizeof(struct trapframe)), satp);
 }
 
 
@@ -230,7 +249,7 @@ kerneltrap()
 	}
 
 	// give up the CPU if this is a timer interrupt.
-	if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING)
+	if(which_dev == 2 && mythread() != 0 && mythread()->state == RUNNING)
 		yield();
 
 	// the yield() may have caused some traps to occur,

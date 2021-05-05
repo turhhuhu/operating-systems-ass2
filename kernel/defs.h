@@ -93,6 +93,7 @@ int             kill(int, int);
 struct cpu*     mycpu(void);
 struct cpu*     getmycpu(void);
 struct proc*    myproc();
+struct thread*  mythread();
 void            procinit(void);
 void            scheduler(void) __attribute__((noreturn));
 void            sched(void);
@@ -108,6 +109,7 @@ void            procdump(void);
 uint            sigprocmask(uint);
 int             sigaction(int, uint64 act_addr, uint64 old_act_addr);
 void            sigret(void);
+void            freethread(struct thread* t);
 
 // swtch.S
 void            swtch(struct context*, struct context*);

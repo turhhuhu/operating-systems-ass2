@@ -2664,15 +2664,16 @@ execout(char *s)
 int
 countfree()
 {
+  //printf("enter count free\n");
   int fds[2];
 
   if(pipe(fds) < 0){
     printf("pipe() failed in countfree()\n");
     exit(1);
   }
-  
+  //printf("after pipe\n");
   int pid = fork();
-
+  //printf("after fork\n");
   if(pid < 0){
     printf("fork failed in countfree()\n");
     exit(1);
@@ -2696,13 +2697,15 @@ countfree()
         exit(1);
       }
     }
-
+     //printf("after child\n");
     exit(0);
   }
 
+  //printf("in dad before close\n");
   close(fds[1]);
-
+  //printf("after close\n");
   int n = 0;
+  //printf("before read\n");
   while(1){
     char c;
     int cc = read(fds[0], &c, 1);
@@ -2714,10 +2717,14 @@ countfree()
       break;
     n += 1;
   }
+  printf("after read\n");
 
+  printf("before close 2nd\n");
   close(fds[0]);
+  printf("after close 2nd\n");
   wait((int*)0);
-  
+  printf("after wait\n");
+  printf("exit count free\n");
   return n;
 }
 
