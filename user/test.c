@@ -28,7 +28,7 @@ int main(int argc, char const *argv[])
     kill(pid, SIGSTOP);
     sleep(50);
     printf("before sig cont\n");
-    //kill(pid, SIGCONT);
+    kill(pid, SIGCONT);
     printf("after sig cont\n");
     wait(&pid);
     exit(0);

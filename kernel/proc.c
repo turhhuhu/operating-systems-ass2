@@ -68,7 +68,11 @@ procinit(void)
 	initlock(&wait_lock, "wait_lock");
 	for(p = proc; p < &proc[NPROC]; p++) {
 		initlock(&p->lock, "proc");
-		struct thread* main_thread = &p->threads[0]; 
+		struct thread* main_thread = &p->threads[0];
+		for(struct thread* t = p->threads; t < &p->threads[NTHREAD]; t++){
+			initlock(&t->lock, "thread");
+		}
+		
 		main_thread->kstack = KSTACK((int) (p - proc));
 	}
 }
@@ -132,8 +136,8 @@ allocproc(void)
 {
 	struct proc *p;
 	for(p = proc; p < &proc[NPROC]; p++) {
-		p->lock.called_function = "allocproc";
 		acquire(&p->lock);
+		p->lock.called_function = "allocproc";
 		if(p->state == UNUSED) {
 			goto found;
 		} else {
@@ -329,11 +333,12 @@ growproc(int n)
 {
 	uint sz;
 	struct proc *p = myproc();
-	p->lock.called_function = "growproc";
 	acquire(&p->lock);
+	p->lock.called_function = "growproc";
 	sz = p->sz;
 	if(n > 0){
 		if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
+            release(&p->lock); //TODO: check why this worked before adding threads
 			return -1;
 		}
 	} else if(n < 0){
@@ -420,8 +425,8 @@ sigprocmask(uint sigprocmask)
 {
 	struct proc *p = myproc();
 	uint old_sigprocmask;
-	p->lock.called_function = "sigprocmask";
 	acquire(&p->lock);
+	p->lock.called_function = "sigprocmask";
 	old_sigprocmask = p->signal_mask;
 	p->signal_mask = sigprocmask;
 	release(&p->lock);
@@ -439,8 +444,8 @@ sigaction(int signum, uint64 act_addr, uint64 old_act_addr)
 	struct proc *p = myproc();
 	struct sigaction old_act;
 	struct sigaction new_act;
-	p->lock.called_function = "sigaction";
 	acquire(&p->lock);
+	p->lock.called_function = "sigaction";
 	old_act.sa_handler = p->signal_handlers[signum];
 	old_act.sigmask = p->signal_handlers_masks[signum];
 	if(old_act_addr != 0){
@@ -474,8 +479,8 @@ sigret(){
 	
 	struct proc* p = myproc();
 	struct thread* t = mythread();
-	p->lock.called_function = "sigret";
 	acquire(&p->lock);
+	p->lock.called_function = "sigret";
 	*(t->trapframe) = *(p->trapframe_backup);
 	p->signal_mask = p->signal_mask_backup;
 	p->is_handling_signal = 0;
@@ -526,8 +531,8 @@ exit(int status)
 	// Parent might be sleeping in wait().
 	wakeup(p->parent);
 	
-	p->lock.called_function = "exit";
 	acquire(&p->lock);
+	p->lock.called_function = "exit";
 	my_t->state = UNUSEDT;
 	my_t->is_killed = 1;
 	char is_all_threads_killed = 1;
@@ -566,9 +571,8 @@ wait(uint64 addr)
 		for(np = proc; np < &proc[NPROC]; np++){
 			if(np->parent == p){
 				// make sure the child isn't still in exit() or swtch().
-				np->lock.called_function = "wait";
 				acquire(&np->lock);
-
+				np->lock.called_function = "wait";
 				havekids = 1;
 				if(np->state == ZOMBIE){
 					// Found one.
@@ -619,9 +623,9 @@ scheduler(void)
 		intr_on();
 
 		for(p = proc; p < &proc[NPROC]; p++) {
-			p->lock.called_function = "scheduler";
 			acquire(&p->lock);
-			int is_released = 0;	
+			p->lock.called_function = "scheduler";
+			int is_released = 0;
 			if(p->state == USED) {
 				// Switch to chosen process.  It is the process's job
 				// to release its lock and then reacquire it
@@ -637,14 +641,14 @@ scheduler(void)
 								break;
 							}
 						}
-						
+						//TODO: need to know why thread does not release process lock after swtch
 						t->state = RUNNING;
 						c->proc = p;
 						c->thread = t;
 						swtch(&c->context, &t->context);
 						c->thread = 0;
 						c->proc = 0;
-					}			
+					}
 				}
 
 				// Process is done running for now.
