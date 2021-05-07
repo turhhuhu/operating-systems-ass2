@@ -110,6 +110,11 @@ uint            sigprocmask(uint);
 int             sigaction(int, uint64 act_addr, uint64 old_act_addr);
 void            sigret(void);
 void            freethread(struct thread* t);
+int             kthread_create(uint64 start_func , uint64 stack);
+int             kthread_id();
+void            kthread_exit(int status);
+int             kthread_join(int thread_id, uint64 status);
+
 
 // swtch.S
 void            swtch(struct context*, struct context*);

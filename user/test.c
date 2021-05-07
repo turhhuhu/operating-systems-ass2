@@ -14,23 +14,36 @@ void sahandler3(int sig){
     printf("ka3ki\n");
 }
 
+void kaki_function(){
+    printf("kaki\n");
+}
+
 int main(int argc, char const *argv[])
 {
-    int pid = getpid();
-    pid = fork();
-    if(pid == 0){
-        printf("in child\n");
-        printf("going to sleep\n");
-        sleep(10);
-        printf("waki waki\n");
-        exit(0);
+
+    void *start = malloc(4000);
+    kthread_create(kaki_function, start);
+
+    for(int i = 0; i < 10000000; i++){
+        i++;
+        i--;
     }
-    kill(pid, SIGSTOP);
-    sleep(50);
-    printf("before sig cont\n");
-    kill(pid, SIGCONT);
-    printf("after sig cont\n");
-    wait(&pid);
+
+    // int pid = getpid();
+    // pid = fork();
+    // if(pid == 0){
+    //     printf("in child\n");
+    //     printf("going to sleep\n");
+    //     sleep(10);
+    //     printf("waki waki\n");
+    //     exit(0);
+    // }
+    // kill(pid, SIGSTOP);
+    // sleep(50);
+    // printf("before sig cont\n");
+    // kill(pid, SIGCONT);
+    // printf("after sig cont\n");
+    // wait(&pid);
     exit(0);
 }
 

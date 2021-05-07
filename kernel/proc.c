@@ -72,7 +72,6 @@ procinit(void)
 		for(struct thread* t = p->threads; t < &p->threads[NTHREAD]; t++){
 			initlock(&t->lock, "thread");
 		}
-		
 		main_thread->kstack = KSTACK((int) (p - proc));
 	}
 }
@@ -175,6 +174,7 @@ found:
 	// Set up new context to start executing at forkret,
 	// which returns to user space.
 	struct thread* main_thread = &p->threads[0];
+	main_thread->tid = 1;
 	memset(&(main_thread->context), 0, sizeof(struct context));
 	main_thread->context.ra = (uint64)forkret;
 	main_thread->context.sp = main_thread->kstack + PGSIZE;
@@ -205,8 +205,8 @@ found:
 void
 freethread(struct thread* t)
 {
-	// if(t->kstack)
-	// 	kfree((void*)t->kstack);
+	if(t->tid != myproc()->threads[0].tid && t->kstack)
+		kfree((void*)t->kstack);
 	t->trapframe = 0;
 	t->chan = 0;
 	t->name[0] = 0;
@@ -518,40 +518,43 @@ exit(int status)
 		}
 	}
 
-	begin_op();
-	iput(p->cwd);
-	end_op();
-	p->cwd = 0;
 
-	acquire(&wait_lock);
-
-	// Give any children to init.
-	reparent(p);
-
-	// Parent might be sleeping in wait().
-	wakeup(p->parent);
 	
 	acquire(&p->lock);
 	p->lock.called_function = "exit";
-	my_t->state = UNUSEDT;
+	my_t->state = ZOMBIET;
 	my_t->is_killed = 1;
 	char is_all_threads_killed = 1;
 	for(struct thread* t = p->threads; t < &p->threads[NTHREAD]; t++){
-		if(t->state != UNUSEDT){
+		if(t->state != ZOMBIET && t->state != UNUSEDT){
 			is_all_threads_killed = 0;
 			break;
 		}
 	}
 	if(is_all_threads_killed){
+
+		begin_op();
+		iput(p->cwd);
+		end_op();
+        p->cwd = 0;
+		acquire(&wait_lock);
+
+		// Give any children to init.
+		reparent(p);
+
+		// Parent might be sleeping in wait().
+		wakeup(p->parent);
+		release(&wait_lock);
 		p->xstate = status;
 		p->state = ZOMBIE;
 	}
 
-	release(&wait_lock);
 
 	// Jump into the scheduler, never to return.
 	sched();
-	panic("zombie exit");
+	if(p->state == ZOMBIE){
+		panic("zombie exit");
+	}
 }
 
 // Wait for a child process to exit and return its pid.
@@ -884,4 +887,68 @@ sigcont_handler(int signum)
 void
 sigign_handler(int signum)
 {
+}
+
+void threadret(){
+	asm ("li a7, 27\necall");
+}
+void threadretend(){
+	
+}
+
+int allocthread(void* start_func , void* stack)
+{
+	struct proc* p = myproc();
+	struct thread* my_t = mythread();
+	struct thread* new_thread = 0;
+	for(struct thread* t = p->threads; t < &p->threads[NTHREAD]; t++){
+		if (t->state == UNUSEDT){
+			new_thread = t;
+			break;
+		}
+	}
+	if(new_thread == 0){
+		return -1;
+	}
+	new_thread->kstack = (uint64)kalloc();
+	memset(&(new_thread->context), 0, sizeof(struct context));
+	new_thread->context.ra = (uint64)forkret;
+	new_thread->context.sp = new_thread->kstack + PGSIZE;
+	new_thread->state = RUNNABLE;
+	*(new_thread->trapframe) = *(my_t->trapframe);
+	new_thread->trapframe->sp = (uint64)(stack + MAX_STACK_SIZE - 16);
+	int kthread_exit_size = threadretend - threadret;
+	new_thread->trapframe->sp -= kthread_exit_size;
+	if(copyout(p->pagetable, new_thread->trapframe->sp, (char *)threadret, kthread_exit_size) < 0){
+		return -1;
+	}
+	new_thread->trapframe->ra = new_thread->trapframe->sp;
+	new_thread->is_killed = 0;
+	new_thread->trapframe->epc = (uint64)start_func;
+	return allocpid();
+}
+
+int
+kthread_create(uint64 start_func, uint64 stack){
+	struct proc* p = myproc();
+	acquire(&p->lock);
+	int result = allocthread((void*)start_func, (void*)stack);
+	release(&p->lock);
+	return result;
+}
+
+int
+kthread_id(){
+	return -1;
+}
+
+void
+kthread_exit(int status){
+	printf("called kthread exit\n");
+	exit(status);
+}
+
+int
+kthread_join(int thread_id, uint64 status){
+	return -1;
 }

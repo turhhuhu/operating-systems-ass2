@@ -1,6 +1,7 @@
 #include "signals.h"
 
 #define NTHREAD 8
+#define MAX_STACK_SIZE 4000
 
 // Saved registers for kernel context switches.
 struct context {
@@ -91,7 +92,7 @@ struct trapframe {
 };
 
 enum procstate { UNUSED, USED, ZOMBIE };
-enum threadstate { SLEEPING, RUNNABLE, RUNNING, UNUSEDT};
+enum threadstate { SLEEPING, RUNNABLE, RUNNING, UNUSEDT, ZOMBIET};
 
 struct thread {
   struct spinlock lock;
@@ -102,6 +103,7 @@ struct thread {
   struct context context;      // swtch() here to run process
   char name[16];
   char is_killed;              // Thread name (debugging)
+  int tid;
 };
 // Per-process state
 struct proc {
