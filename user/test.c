@@ -16,6 +16,13 @@ void sahandler3(int sig){
 
 void kaki_function(){
     printf("kaki\n");
+    for (int i = 0; i < 100000000; i++)
+    {
+        i++;
+        i--;
+    }
+    
+    kthread_exit(0);
 }
 
 int main(int argc, char const *argv[])
@@ -38,13 +45,16 @@ int main(int argc, char const *argv[])
     //     exit(0);
     // }
     void *start_1 = malloc(4000);
-    kthread_create(kaki_function, start_1);
-    int id = kthread_id();
-    printf("id of parent: %d\n", id);
-    for(int i = 0; i < 100000000; i++){
-            i++;
-            i--;
-    }
+    int id = kthread_create(kaki_function, start_1);
+    //int id2 = kthread_create(kaki_function, start_2);
+    int xstate;
+    // printf("id of parent: %d\n", id);
+    // for (int i = 0; i < 1000000000; i++)
+    // {
+    //     i++;
+    //     i--;
+    // }
+    kthread_join(id, &xstate);
     // wait(&pid);
 
     // int pid = getpid();

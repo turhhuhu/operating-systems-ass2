@@ -208,7 +208,7 @@ usertrapret(void)
 
 	int thread_position = 0;
 	for(int i = 0; i < NTHREAD; i++){
-		if(&p->threads[i] == t)
+		if(p->threads[i].tid == t->tid)
 		{
 			thread_position = i;
 			break;

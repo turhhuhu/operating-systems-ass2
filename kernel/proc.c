@@ -35,6 +35,7 @@ extern char trampoline[]; // trampoline.S
 // memory model when using p->parent.
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
+struct spinlock join_lock;
 
 static handler *def_handlers[] = {
 	[SIGSTOP]  sigstop_handler,
@@ -69,6 +70,7 @@ procinit(void)
 	initlock(&pid_lock, "nextpid");
 	initlock(&tid_lock, "nexttid");
 	initlock(&wait_lock, "wait_lock");
+	initlock(&join_lock, "join_lock");
 	for(p = proc; p < &proc[NPROC]; p++) {
 		initlock(&p->lock, "proc");
 		struct thread* main_thread = &p->threads[0];
@@ -223,7 +225,7 @@ freethread(struct proc* p, struct thread* t)
 	if(t->tid != p->threads[0].tid && t->kstack){
 		kfree((void*)t->kstack);
 	}
-	t->trapframe = 0;
+	memset(&(t->trapframe), 0, sizeof(struct trapframe));
 	t->chan = 0;
 	t->name[0] = 0;
 	t->state = UNUSEDT;
@@ -336,7 +338,7 @@ userinit(void)
 	safestrcpy(p->name, "initcode", sizeof(p->name));
 	p->cwd = namei("/");
 
-	p->state = RUNNABLE;
+	p->state = USED;
 	t->state = RUNNABLE;
 
 	release(&p->lock);
@@ -524,6 +526,7 @@ exit(int status)
 	if(p == initproc)
 		panic("init exiting");
 
+	wakeup(my_t);
 	acquire(&p->lock);
 	if(my_t->is_killed || my_t->state == ZOMBIET || my_t->state == UNUSEDT){
 		sched();
@@ -794,15 +797,15 @@ wakeup(void *chan)
 	struct proc *p;
 
 	for(p = proc; p < &proc[NPROC]; p++) {
-		if(p != myproc()){
-			acquire(&p->lock);
-			for(struct thread* t = p->threads; t < &p->threads[NTHREAD]; t++){
+		acquire(&p->lock);
+		for(struct thread* t = p->threads; t < &p->threads[NTHREAD]; t++){
+			if(t != mythread()){
 				if(t->state == SLEEPING && t->chan == chan) {
 					t->state = RUNNABLE;
 				}
 			}
-			release(&p->lock);
 		}
+		release(&p->lock);
 	}
 }
 
@@ -940,6 +943,7 @@ int allocthread(void* start_func , void* stack)
 		}
 		if (t->state == UNUSEDT && !found){
 			new_thread = t;
+			found = 1;
 		}
 	}
 	if(new_thread == 0){
@@ -952,12 +956,12 @@ int allocthread(void* start_func , void* stack)
 	new_thread->state = RUNNABLE;
 	*(new_thread->trapframe) = *(my_t->trapframe);
 	new_thread->trapframe->sp = (uint64)(stack + MAX_STACK_SIZE - 16);
-	int kthread_exit_size = threadretend - threadret;
-	new_thread->trapframe->sp -= kthread_exit_size;
-	if(copyout(p->pagetable, new_thread->trapframe->sp, (char *)threadret, kthread_exit_size) < 0){
-		return -1;
-	}
-	new_thread->trapframe->ra = new_thread->trapframe->sp;
+	// int kthread_exit_size = threadretend - threadret;
+	// new_thread->trapframe->sp -= kthread_exit_size;
+	// if(copyout(p->pagetable, new_thread->trapframe->sp, (char *)threadret, kthread_exit_size) < 0){
+	// 	return -1;
+	// }
+	// new_thread->trapframe->ra = new_thread->trapframe->sp;
 	new_thread->is_killed = 0;
 	new_thread->trapframe->epc = (uint64)start_func;
 	
@@ -992,9 +996,10 @@ kthread_exit(int status){
 			break;
 		}
 	}
+	my_t->xstate = status;
 	release(&p->lock);
+	wakeup(my_t);
 	if(!found){
-		printf("here\n");
 		exit(status);
 	}
 	else{
@@ -1002,30 +1007,33 @@ kthread_exit(int status){
 		my_t->state = ZOMBIET;
 		sched();
 	}
-//   struct thread * t;
-//   int found = 0;
-
-//   acquire(&proc->lock);
-//   for(t = proc->threads; t < &proc->threads[NTHREAD]; t++)
-//     if( t->tid != thread->tid && (t->state == EMBRYO || t->state == RUNNABLE || t->state == RUNNING || t->state == SLEEPING))
-//       found = 1;
-
-//   if(!found)
-//   {
-//     release(&proc->lock);
-//     wakeup(t);
-//     exit();
-//   }
-//   release(&proc->lock);
-
-//   acquire(&ptable.lock);
-//   wakeup1(thread);
-//   thread->state = TZOMBIE;
-  
-//   sched();
 }
 
 int
 kthread_join(int thread_id, uint64 status){
-	return -1;
+	struct proc* p = myproc();
+	if (thread_id == mythread()->tid){
+		return -1;
+	}
+	struct thread* t;
+	for(t = p->threads; t < &p->threads[NTHREAD]; t++){
+		if(t->tid == thread_id){
+			break;
+		}
+	}
+	if(t->state != ZOMBIET || t->state != UNUSEDT){
+		acquire(&join_lock);
+		sleep(t, &join_lock);
+		release(&join_lock);
+	}
+
+	if(t->state == ZOMBIET){
+		freethread(p, t);
+	}
+
+	if(copyout(p->pagetable, status, (char *)&t->xstate, sizeof(int)) < 0){
+		return -1;
+	}
+
+	return 0;
 }

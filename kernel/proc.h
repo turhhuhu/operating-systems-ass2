@@ -92,11 +92,12 @@ struct trapframe {
 };
 
 enum procstate { UNUSED, USED, ZOMBIE };
-enum threadstate { SLEEPING, RUNNABLE, RUNNING, UNUSEDT, ZOMBIET};
+enum threadstate { UNUSEDT, RUNNABLE, RUNNING, SLEEPING, ZOMBIET};
 
 struct thread {
   struct spinlock lock;
   enum threadstate state;
+  int xstate;
   void *chan;                  // If non-zero, sleeping on chan
   uint64 kstack;               // Virtual address of kernel stack
   struct trapframe *trapframe; // data page for trampoline.S
