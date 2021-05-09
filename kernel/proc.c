@@ -20,11 +20,13 @@ struct proc proc[NPROC];
 struct proc *initproc;
 
 int nextpid = 1;
+int nexttid = 1;
 struct spinlock pid_lock;
+struct spinlock tid_lock;
 
 extern void forkret(void);
 static void freeproc(struct proc *p);
-void freethread(struct thread *t);
+void freethread(struct proc *p, struct thread *t);
 
 extern char trampoline[]; // trampoline.S
 
@@ -65,6 +67,7 @@ procinit(void)
 	struct proc *p;
 	
 	initlock(&pid_lock, "nextpid");
+	initlock(&tid_lock, "nexttid");
 	initlock(&wait_lock, "wait_lock");
 	for(p = proc; p < &proc[NPROC]; p++) {
 		initlock(&p->lock, "proc");
@@ -126,6 +129,18 @@ allocpid() {
 	return pid;
 }
 
+int
+alloctid() {
+	int tid;
+	
+	acquire(&tid_lock);
+	tid = nexttid;
+	nexttid = nexttid + 1;
+	release(&tid_lock);
+
+	return tid;
+}
+
 // Look in the process table for an UNUSED proc.
 // If found, initialize state required to run in the kernel,
 // and return with p->lock held.
@@ -161,6 +176,7 @@ found:
 		t->trapframe = start + i*sizeof(struct trapframe);
 		i++;
 		t->state = UNUSEDT;
+		t->tid = alloctid();
 	}
 
 	// An empty user page table.
@@ -174,7 +190,6 @@ found:
 	// Set up new context to start executing at forkret,
 	// which returns to user space.
 	struct thread* main_thread = &p->threads[0];
-	main_thread->tid = 1;
 	memset(&(main_thread->context), 0, sizeof(struct context));
 	main_thread->context.ra = (uint64)forkret;
 	main_thread->context.sp = main_thread->kstack + PGSIZE;
@@ -203,10 +218,11 @@ found:
 	return p;
 }
 void
-freethread(struct thread* t)
+freethread(struct proc* p, struct thread* t)
 {
-	if(t->tid != myproc()->threads[0].tid && t->kstack)
+	if(t->tid != p->threads[0].tid && t->kstack){
 		kfree((void*)t->kstack);
+	}
 	t->trapframe = 0;
 	t->chan = 0;
 	t->name[0] = 0;
@@ -226,8 +242,8 @@ freeproc(struct proc *p)
 	if(p->trapframe_backup)
 		kfree((void*)p->trapframe_backup);
 
-	for(struct thread* t = p->threads; t < &p->threads[NTHREAD]; t++){
-		freethread(t);
+	for(struct thread* tt = p->threads; tt < &p->threads[NTHREAD]; tt++){
+		freethread(p, tt);
 	}
 
 	if(p->pagetable)
@@ -401,7 +417,6 @@ fork(void)
 	np->state = RUNNABLE;
 	t_np->state = RUNNABLE;
 	release(&np->lock);
-
 	return pid;
 }
 
@@ -509,6 +524,34 @@ exit(int status)
 	if(p == initproc)
 		panic("init exiting");
 
+	acquire(&p->lock);
+	if(my_t->is_killed || my_t->state == ZOMBIET || my_t->state == UNUSEDT){
+		sched();
+	}
+	for(struct thread* t = p->threads; t < &p->threads[NTHREAD]; t++){
+		if(t->tid != my_t->tid){
+			t->is_killed = 1;
+		}
+	}
+	release(&p->lock);
+	int found;
+	for(;;){
+		found = 0;
+		acquire(&p->lock);
+		for(struct thread* t = p->threads; t < &p->threads[NTHREAD]; t++){
+			if(t->tid != my_t->tid && t->state != ZOMBIET && t->state != UNUSEDT){
+				found = 1;
+			}
+		}
+		release(&p->lock);
+		if(found){
+			yield();
+		}
+		else{
+			break;
+		}
+	}
+
 	// Close all open files.
 	for(int fd = 0; fd < NOFILE; fd++){
 		if(p->ofile[fd]){
@@ -517,38 +560,25 @@ exit(int status)
 			p->ofile[fd] = 0;
 		}
 	}
-
-
+	begin_op();
+	iput(p->cwd);
+	end_op();
+	p->cwd = 0;
 	
+	acquire(&wait_lock);
+
+	// Give any children to init.
+	reparent(p);
+
+	// Parent might be sleeping in wait().
+	wakeup(p->parent);
+
 	acquire(&p->lock);
 	p->lock.called_function = "exit";
-	my_t->state = ZOMBIET;
-	my_t->is_killed = 1;
-	char is_all_threads_killed = 1;
-	for(struct thread* t = p->threads; t < &p->threads[NTHREAD]; t++){
-		if(t->state != ZOMBIET && t->state != UNUSEDT){
-			is_all_threads_killed = 0;
-			break;
-		}
-	}
-	if(is_all_threads_killed){
-
-		begin_op();
-		iput(p->cwd);
-		end_op();
-        p->cwd = 0;
-		acquire(&wait_lock);
-
-		// Give any children to init.
-		reparent(p);
-
-		// Parent might be sleeping in wait().
-		wakeup(p->parent);
-		release(&wait_lock);
-		p->xstate = status;
-		p->state = ZOMBIE;
-	}
-
+	my_t->state = UNUSEDT;
+	p->xstate = status;
+	p->state = ZOMBIE;
+	release(&wait_lock);
 
 	// Jump into the scheduler, never to return.
 	sched();
@@ -901,10 +931,15 @@ int allocthread(void* start_func , void* stack)
 	struct proc* p = myproc();
 	struct thread* my_t = mythread();
 	struct thread* new_thread = 0;
+
+	
+	int found = 0;
 	for(struct thread* t = p->threads; t < &p->threads[NTHREAD]; t++){
-		if (t->state == UNUSEDT){
+		if(t->state == ZOMBIET){
+			t->state = UNUSEDT;
+		}
+		if (t->state == UNUSEDT && !found){
 			new_thread = t;
-			break;
 		}
 	}
 	if(new_thread == 0){
@@ -925,7 +960,9 @@ int allocthread(void* start_func , void* stack)
 	new_thread->trapframe->ra = new_thread->trapframe->sp;
 	new_thread->is_killed = 0;
 	new_thread->trapframe->epc = (uint64)start_func;
-	return allocpid();
+	
+	
+	return new_thread->tid;
 }
 
 int
@@ -939,13 +976,53 @@ kthread_create(uint64 start_func, uint64 stack){
 
 int
 kthread_id(){
-	return -1;
+	struct thread* t = mythread();
+	return t->tid;
 }
 
 void
 kthread_exit(int status){
-	printf("called kthread exit\n");
-	exit(status);
+	struct proc* p = myproc();
+	struct thread* my_t = mythread();
+	int found = 0;
+	acquire(&p->lock);
+	for(struct thread* t = p->threads; t < &p->threads[NTHREAD]; t++){
+		if(t->tid != my_t->tid && t->state != ZOMBIET && t->state != UNUSEDT){
+			found = 1;
+			break;
+		}
+	}
+	release(&p->lock);
+	if(!found){
+		printf("here\n");
+		exit(status);
+	}
+	else{
+		acquire(&p->lock);
+		my_t->state = ZOMBIET;
+		sched();
+	}
+//   struct thread * t;
+//   int found = 0;
+
+//   acquire(&proc->lock);
+//   for(t = proc->threads; t < &proc->threads[NTHREAD]; t++)
+//     if( t->tid != thread->tid && (t->state == EMBRYO || t->state == RUNNABLE || t->state == RUNNING || t->state == SLEEPING))
+//       found = 1;
+
+//   if(!found)
+//   {
+//     release(&proc->lock);
+//     wakeup(t);
+//     exit();
+//   }
+//   release(&proc->lock);
+
+//   acquire(&ptable.lock);
+//   wakeup1(thread);
+//   thread->state = TZOMBIE;
+  
+//   sched();
 }
 
 int

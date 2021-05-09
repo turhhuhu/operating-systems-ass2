@@ -149,8 +149,8 @@ syscall(void)
   int num;
   struct proc *p = myproc();
   struct thread* t = mythread();
-
   num = t->trapframe->a7;
+  //printf("system call number is: %d\n", num);
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
     t->trapframe->a0 = syscalls[num]();
   } else {

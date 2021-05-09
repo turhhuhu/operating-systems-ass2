@@ -109,7 +109,7 @@ void            procdump(void);
 uint            sigprocmask(uint);
 int             sigaction(int, uint64 act_addr, uint64 old_act_addr);
 void            sigret(void);
-void            freethread(struct thread* t);
+void            freethread(struct proc* p, struct thread* t);
 int             kthread_create(uint64 start_func , uint64 stack);
 int             kthread_id();
 void            kthread_exit(int status);

@@ -53,10 +53,10 @@ usertrap(void)
 	if(r_scause() == 8){
 		// system call
 
+		if(t->is_killed)
+           t->state = UNUSEDT;
 		if(p->killed)
 			exit(-1);
-//        else if(t->is_killed)
-//            freethread(t);
 
 		// sepc points to the ecall instruction,
 		// but we want to return to the next instruction.
@@ -74,11 +74,10 @@ usertrap(void)
 		printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
 		p->killed = 1;
 	}
-
+	if(t->is_killed)
+		t->state = UNUSEDT;
 	if(p->killed)
 		exit(-1);
-	else if(t->is_killed)
-		freethread(t);
 
 	// give up the CPU if this is a timer interrupt.
 	if(which_dev == 2)
@@ -247,6 +246,7 @@ kerneltrap()
 		printf("sepc=%p stval=%p\n", r_sepc(), r_stval());
 		panic("kerneltrap");
 	}
+
 
 	// give up the CPU if this is a timer interrupt.
 	if(which_dev == 2 && mythread() != 0 && mythread()->state == RUNNING)

@@ -21,13 +21,31 @@ void kaki_function(){
 int main(int argc, char const *argv[])
 {
 
-    void *start = malloc(4000);
-    kthread_create(kaki_function, start);
 
-    for(int i = 0; i < 10000000; i++){
-        i++;
-        i--;
+
+
+    // int pid = getpid();
+    // pid = fork();
+    // if(pid == 0){
+    //     void *start = malloc(4000);
+    //     kthread_create(kaki_function, start);
+    //     int id = kthread_id();
+    //     printf("id of child: %d\n", id);
+    //     for(int i = 0; i < 100000000; i++){
+    //         i++;
+    //         i--;
+    //     }
+    //     exit(0);
+    // }
+    void *start_1 = malloc(4000);
+    kthread_create(kaki_function, start_1);
+    int id = kthread_id();
+    printf("id of parent: %d\n", id);
+    for(int i = 0; i < 100000000; i++){
+            i++;
+            i--;
     }
+    // wait(&pid);
 
     // int pid = getpid();
     // pid = fork();
