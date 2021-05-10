@@ -237,7 +237,9 @@ freethread(struct proc* p, struct thread* t)
 	if(t->tid != p->threads[0].tid && t->kstack){
 		kfree((void*)t->kstack);
 	}
-	memset(&(t->trapframe), 0, sizeof(struct trapframe));
+	if(t->trapframe){
+		memset(&(t->trapframe), 0, sizeof(struct trapframe));
+	}
 	t->chan = 0;
 	t->name[0] = 0;
 	t->state = UNUSEDT;
@@ -251,6 +253,8 @@ static void
 freeproc(struct proc *p)
 {
 	struct thread* t = &p->threads[0];
+
+
 	if(t->trapframe)
 		kfree((void*)t->trapframe);
 	if(p->trapframe_backup)
@@ -428,7 +432,7 @@ fork(void)
 	release(&wait_lock);
 
 	acquire(&np->lock);
-	np->state = RUNNABLE;
+	np->state = USED;
 	t_np->state = RUNNABLE;
 	release(&np->lock);
 	return pid;
@@ -968,6 +972,10 @@ int allocthread(void* start_func , void* stack)
 	if(new_thread == 0){
 		return -1;
 	}
+	if(my_t->tid != p->threads[0].tid && my_t->kstack){
+		kfree((void*)my_t->kstack);
+		my_t->kstack = 0;
+	}
 	new_thread->kstack = (uint64)kalloc();
 	memset(&(new_thread->context), 0, sizeof(struct context));
 	new_thread->context.ra = (uint64)forkret;
@@ -1069,6 +1077,8 @@ int bsem_alloc()
 	acquire(&semaphore_t.lock);
 	for(struct semaphore *s = semaphore_t.sems; s < &semaphore_t.sems[MAX_BSEM]; s++){
 		if (s->state == UNUSEDS){
+			s->sl.locked = 0;
+			s->sl.pid = 0;
 			s->state = USEDS;
 			release(&semaphore_t.lock);
 			return s->descriptor;
