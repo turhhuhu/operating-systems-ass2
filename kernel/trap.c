@@ -54,7 +54,7 @@ usertrap(void)
 		// system call
 
 		if(t->is_killed)
-           t->state = UNUSEDT;
+           t->state = ZOMBIET;
 		if(p->killed)
 			exit(-1);
 
@@ -75,7 +75,7 @@ usertrap(void)
 		p->killed = 1;
 	}
 	if(t->is_killed)
-		t->state = UNUSEDT;
+		t->state = ZOMBIET;
 	if(p->killed)
 		exit(-1);
 

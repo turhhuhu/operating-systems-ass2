@@ -372,7 +372,7 @@ growproc(int n)
 	sz = p->sz;
 	if(n > 0){
 		if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
-            release(&p->lock); //TODO: check why this worked before adding threads
+            release(&p->lock); 
 			return -1;
 		}
 	} else if(n < 0){
@@ -707,7 +707,7 @@ scheduler(void)
 								break;
 							}
 						}
-						//TODO: need to know why thread does not release process lock after swtch
+
 						t->state = RUNNING;
 						c->proc = p;
 						c->thread = t;
@@ -962,7 +962,7 @@ int allocthread(void* start_func , void* stack)
 	int found = 0;
 	for(struct thread* t = p->threads; t < &p->threads[NTHREAD]; t++){
 		if(t->state == ZOMBIET){
-			t->state = UNUSEDT;
+			freethread(p,t);
 		}
 		if (t->state == UNUSEDT && !found){
 			new_thread = t;
@@ -972,7 +972,7 @@ int allocthread(void* start_func , void* stack)
 	if(new_thread == 0){
 		return -1;
 	}
-	if(new_thread->tid != p->threads[0].tid && new_threadz->kstack){
+	if(new_thread->tid != p->threads[0].tid && new_thread->kstack){
 		kfree((void*)new_thread->kstack);
 		new_thread->kstack = 0;
 	}
@@ -985,14 +985,9 @@ int allocthread(void* start_func , void* stack)
 	new_thread->state = RUNNABLE;
 	*(new_thread->trapframe) = *(my_t->trapframe);
 	new_thread->trapframe->sp = (uint64)(stack + MAX_STACK_SIZE - 16);
-	// int kthread_exit_size = threadretend - threadret;
-	// new_thread->trapframe->sp -= kthread_exit_size;
-	// if(copyout(p->pagetable, new_thread->trapframe->sp, (char *)threadret, kthread_exit_size) < 0){
-	// 	return -1;
-	// }
-	// new_thread->trapframe->ra = new_thread->trapframe->sp;
 	new_thread->is_killed = 0;
 	new_thread->trapframe->epc = (uint64)start_func;
+	new_thread->tid = alloctid();
 	
 	
 	return new_thread->tid;
@@ -1041,7 +1036,9 @@ kthread_exit(int status){
 int
 kthread_join(int thread_id, uint64 status){
 	struct proc* p = myproc();
+	acquire(&p->lock);
 	if (thread_id == mythread()->tid){
+		release(&p->lock);
 		return -1;
 	}
 	struct thread* t;
@@ -1051,9 +1048,11 @@ kthread_join(int thread_id, uint64 status){
 		}
 	}
 	if(t->state != ZOMBIET || t->state != UNUSEDT){
+		release(&p->lock);
 		acquire(&join_lock);
 		sleep(t, &join_lock);
 		release(&join_lock);
+		acquire(&p->lock);
 	}
 
 	if(t->state == ZOMBIET){
@@ -1061,9 +1060,10 @@ kthread_join(int thread_id, uint64 status){
 	}
 
 	if(copyout(p->pagetable, status, (char *)&t->xstate, sizeof(int)) < 0){
+		release(&p->lock);
 		return -1;
 	}
-
+	release(&p->lock);
 	return 0;
 }
 
