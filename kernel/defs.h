@@ -114,6 +114,10 @@ int             kthread_create(uint64 start_func , uint64 stack);
 int             kthread_id();
 void            kthread_exit(int status);
 int             kthread_join(int thread_id, uint64 status);
+int             bsem_alloc();
+void            bsem_free(int);
+void            bsem_down(int);
+void            bsem_up(int);
 
 
 // swtch.S

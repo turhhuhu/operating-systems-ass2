@@ -2,7 +2,8 @@
 #include "param.h"
 #include "memlayout.h"
 #include "riscv.h"
-#include "spinlock.h"
+// #include "spinlock.h"
+#include "semaphore.h"
 #include "proc.h"
 #include "defs.h"
 
@@ -36,6 +37,8 @@ extern char trampoline[]; // trampoline.S
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
 struct spinlock join_lock;
+struct semaphore_table semaphore_t;
+
 
 static handler *def_handlers[] = {
 	[SIGSTOP]  sigstop_handler,
@@ -71,6 +74,15 @@ procinit(void)
 	initlock(&tid_lock, "nexttid");
 	initlock(&wait_lock, "wait_lock");
 	initlock(&join_lock, "join_lock");
+	initlock(&semaphore_t.lock, "semaphore_t_lock");
+	int i = 0;
+	for(struct semaphore *s = semaphore_t.sems; s < &semaphore_t.sems[MAX_BSEM]; s++){
+		s->state = UNUSEDS;
+		s->descriptor = i;
+		initsleeplock(&s->sl, "sem");
+		i++;
+	}
+
 	for(p = proc; p < &proc[NPROC]; p++) {
 		initlock(&p->lock, "proc");
 		struct thread* main_thread = &p->threads[0];
@@ -922,13 +934,6 @@ sigign_handler(int signum)
 {
 }
 
-void threadret(){
-	asm ("li a7, 27\necall");
-}
-void threadretend(){
-	
-}
-
 int allocthread(void* start_func , void* stack)
 {
 	struct proc* p = myproc();
@@ -1036,4 +1041,63 @@ kthread_join(int thread_id, uint64 status){
 	}
 
 	return 0;
+}
+
+int is_in_range_desc(int descriptor){
+	if (descriptor < 0 || descriptor >= MAX_BSEM){
+		return 0;
+	}
+	return 1;
+}
+
+int bsem_alloc()
+{
+	acquire(&semaphore_t.lock);
+	for(struct semaphore *s = semaphore_t.sems; s < &semaphore_t.sems[MAX_BSEM]; s++){
+		if (s->state == UNUSEDS){
+			s->state = USEDS;
+			release(&semaphore_t.lock);
+			return s->descriptor;
+		}
+	}
+	release(&semaphore_t.lock);
+	return -1;
+}
+void bsem_free(int descriptor)
+{
+	if(!is_in_range_desc(descriptor)){
+		return;
+	}
+	struct semaphore *s = &semaphore_t.sems[descriptor];
+	acquire(&semaphore_t.lock);
+	s->state = UNUSEDS;
+	release(&semaphore_t.lock);
+}
+void bsem_down(int descriptor)
+{
+	if(!is_in_range_desc(descriptor)){
+		return;
+	}
+	struct semaphore *s = &semaphore_t.sems[descriptor];
+	acquire(&semaphore_t.lock);
+	if (s->state != USEDS){
+		release(&semaphore_t.lock);
+		return;
+	}
+	release(&semaphore_t.lock);
+	acquiresleep(&s->sl);
+}
+void bsem_up(int descriptor)
+{
+	if(!is_in_range_desc(descriptor)){
+		return;
+	}
+	struct semaphore *s = &semaphore_t.sems[descriptor];
+	acquire(&semaphore_t.lock);
+	if (s->state != USEDS){
+		release(&semaphore_t.lock);
+		return;
+	}
+	release(&semaphore_t.lock);
+	releasesleep(&s->sl);
 }

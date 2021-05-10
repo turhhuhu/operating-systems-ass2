@@ -73,27 +73,27 @@ void thread_test(char *s){
 }
 
 
-// void bsem_test(char *s){
-//     int pid;
-//     int bid = bsem_alloc();
-//     bsem_down(bid);
-//     printf("1. Parent downing semaphore\n");
-//     if((pid = fork()) == 0){
-//         printf("2. Child downing semaphore\n");
-//         bsem_down(bid);
-//         printf("4. Child woke up\n");
-//         exit(0);
-//     }
-//     sleep(5);
-//     printf("3. Let the child wait on the semaphore...\n");
-//     sleep(10);
-//     bsem_up(bid);
+void bsem_test(char *s){
+    int pid;
+    int bid = bsem_alloc();
+    bsem_down(bid);
+    printf("1. Parent downing semaphore\n");
+    if((pid = fork()) == 0){
+        printf("2. Child downing semaphore\n");
+        bsem_down(bid);
+        printf("4. Child woke up\n");
+        exit(0);
+    }
+    sleep(5);
+    printf("3. Let the child wait on the semaphore...\n");
+    sleep(10);
+    bsem_up(bid);
 
-//     bsem_free(bid);
-//     wait(&pid);
+    bsem_free(bid);
+    wait(&pid);
 
-//     printf("Finished bsem test, make sure that the order of the prints is alright. Meaning (1...2...3...4)\n");
-// }
+    printf("Finished bsem test, make sure that the order of the prints is alright. Meaning (1...2...3...4)\n");
+}
 
 
 // void Csem_test(char *s){
@@ -2882,7 +2882,7 @@ main(int argc, char *argv[])
 	  //ASS 2 Compilation tests:
 	  {signal_test,"signal_test"},
 	  {thread_test,"thread_test"},
-	  // {bsem_test,"bsem_test"},
+	  {bsem_test,"bsem_test"},
 	  // {Csem_test,"Csem_test"},
 	  
 // ASS 1 tests

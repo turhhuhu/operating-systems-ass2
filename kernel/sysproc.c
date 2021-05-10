@@ -67,6 +67,10 @@ sys_sleep(void)
       release(&tickslock);
       return -1;
     }
+    if(mythread()->is_killed){
+      release(&tickslock);
+      return -1;
+    }
     sleep(&ticks, &tickslock);
   }
   release(&tickslock);
@@ -162,4 +166,43 @@ sys_kthread_join(void)
     return -1;
   }  
   return kthread_join(thread_id, status);
+}
+
+uint64
+sys_bsem_alloc(void)
+{
+  return bsem_alloc();
+}
+
+uint64
+sys_bsem_free(void)
+{
+  int descriptor;
+  if (argint(0, &descriptor) < 0){
+    return -1;
+  }
+  bsem_free(descriptor);
+  return 0;
+}
+
+uint64
+sys_bsem_down(void)
+{
+  int descriptor;
+  if (argint(0, &descriptor) < 0){
+    return -1;
+  }
+  bsem_down(descriptor);
+  return 0;
+}
+
+uint64
+sys_bsem_up(void)
+{
+  int descriptor;
+  if (argint(0, &descriptor) < 0){
+    return -1;
+  }
+  bsem_up(descriptor);
+  return 0;
 }
