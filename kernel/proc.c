@@ -972,11 +972,13 @@ int allocthread(void* start_func , void* stack)
 	if(new_thread == 0){
 		return -1;
 	}
-	if(my_t->tid != p->threads[0].tid && my_t->kstack){
-		kfree((void*)my_t->kstack);
-		my_t->kstack = 0;
+	if(new_thread->tid != p->threads[0].tid && new_threadz->kstack){
+		kfree((void*)new_thread->kstack);
+		new_thread->kstack = 0;
 	}
-	new_thread->kstack = (uint64)kalloc();
+	if(new_thread->tid != p->threads[0].tid){
+		new_thread->kstack = (uint64)kalloc();
+	}
 	memset(&(new_thread->context), 0, sizeof(struct context));
 	new_thread->context.ra = (uint64)forkret;
 	new_thread->context.sp = new_thread->kstack + PGSIZE;
