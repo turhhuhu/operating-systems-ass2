@@ -493,11 +493,25 @@ sigaction(int signum, uint64 act_addr, uint64 old_act_addr)
 			return -1;
 		}
 	}
+	else{
+		return -1;
+	}
 	if(is_valid_sigmask(new_act.sigmask) < 0){
 		release(&p->lock);
 		return -1;
 	}
-	p->signal_handlers[signum] = new_act.sa_handler;
+	int sa_handler_num = (uint64)new_act.sa_handler;
+	if(sa_handler_num == SIG_DFL
+	|| sa_handler_num == SIGSTOP
+	|| sa_handler_num == SIG_IGN
+	|| sa_handler_num == SIGCONT
+	|| sa_handler_num == SIGKILL)
+	{
+		p->signal_handlers[signum] = def_handlers[sa_handler_num];
+	}
+	else{
+		p->signal_handlers[signum] = new_act.sa_handler;
+	}
 	p->signal_handlers_masks[signum] = new_act.sigmask;
 	release(&p->lock);
 	return 0;

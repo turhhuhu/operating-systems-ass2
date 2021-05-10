@@ -44,34 +44,35 @@ int main(int argc, char const *argv[])
     //     }
     //     exit(0);
     // }
-    void *start_1 = malloc(4000);
-    int id = kthread_create(kaki_function, start_1);
+    //void *start_1 = malloc(4000);
+    //int id = kthread_create(kaki_function, start_1);
     //int id2 = kthread_create(kaki_function, start_2);
-    int xstate;
+    //int xstate;
     // printf("id of parent: %d\n", id);
     // for (int i = 0; i < 1000000000; i++)
     // {
     //     i++;
     //     i--;
     // }
-    kthread_join(id, &xstate);
+    //kthread_join(id, &xstate);
     // wait(&pid);
 
-    // int pid = getpid();
-    // pid = fork();
-    // if(pid == 0){
-    //     printf("in child\n");
-    //     printf("going to sleep\n");
-    //     sleep(10);
-    //     printf("waki waki\n");
-    //     exit(0);
-    // }
-    // kill(pid, SIGSTOP);
-    // sleep(50);
-    // printf("before sig cont\n");
-    // kill(pid, SIGCONT);
-    // printf("after sig cont\n");
-    // wait(&pid);
+    int pid = getpid();
+    pid = fork();
+    if(pid == 0){
+        printf("in child\n");
+        printf("going to sleep\n");
+        sleep(100);
+        printf("waki waki\n");
+        exit(0);
+    }
+    struct sigaction sig;
+    sig.sa_handler = (handler*) SIGKILL;
+    sig.sigmask = 0;
+    sigaction(10, &sig, 0);
+    sleep(50);
+    kill(pid, 10);
+    wait(&pid);
     exit(0);
 }
 
